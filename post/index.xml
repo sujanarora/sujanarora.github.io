@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Posts on Sujan Arora&#39;s Project Journal</title>
+    <link>https://sujanarora.github.io/post/</link>
+    <description>Recent content in Posts on Sujan Arora&#39;s Project Journal</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-US</language>
+    <lastBuildDate>Sat, 21 Aug 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://sujanarora.github.io/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Personal Website Development</title>
+      <link>https://sujanarora.github.io/post/personal-website/</link>
+      <pubDate>Sat, 21 Aug 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://sujanarora.github.io/post/personal-website/</guid>
+      <description>About This Project I have always enjoyed journaling, whether it be about projects that I am working on in school or on the side, or things I am experiencing in my life. It serves as an escape from reality and as a way to reflect on my experiences and improve myself. Specifically with coding, I find it beneficial to journal about school and personal projects because I learn the material better and more often than not discover alternate ways that I could have used to solve various problems.</description>
+    </item>
+    
+    <item>
+      <title>Discord Bot</title>
+      <link>https://sujanarora.github.io/post/discord-bot/</link>
+      <pubDate>Mon, 10 May 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://sujanarora.github.io/post/discord-bot/</guid>
+      <description>Update August 1, 2021 As of now, the next season of Trench League never happened and this project is yet to be put to use. Regardless, I learned a lot about Python and the Discord API for future projects.
+About This Project The idea behind this project initially started two years ago when I was a player in the league. The Trench League is a (very) amateur Dota 2 league that allows players in the &amp;lsquo;Trench&amp;rsquo; to play the game in a more competitive way.</description>
+    </item>
+    
+    <item>
+      <title>Learning the Discord API</title>
+      <link>https://sujanarora.github.io/post/learning-discord-api/</link>
+      <pubDate>Sat, 01 May 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://sujanarora.github.io/post/learning-discord-api/</guid>
+      <description>About This Project The purpose of this project was to learn the Discord API/Python for the development of the discord bot for Trench League. This journal entry will describe my experience creating a basic discord bot with no experience with the Discord API.
+Where to Start? Step 1 is to actually create the bot application. This is done by going to
+https://discord.com/developers/applications
+and creating a New Application. You then create the bot, add it to a guild, and you are off to the races.</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<title>Learning the Discord API | Sujan Arora&#39;s Project Journal</title>
+<meta charset="utf-8">
+<meta name="generator" content="Hugo 0.88.1" />
+<meta name="description" content="My Journal">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://sujanarora.github.iocss/index.css">
+<link rel="canonical" href="https://sujanarora.github.io/post/learning-discord-api/">
+<link rel="alternate" type="application/rss+xml" href="" title="Sujan Arora&#39;s Project Journal">
+
+<header>
+  
+    <a href="https://sujanarora.github.io" class="title">Sujan Arora&#39;s Project Journal</a>
+  
+  
+</header>
+
+<article>
+  <header>
+    <h1>Learning the Discord API</h1>
+    <time datetime="2021-05-01T00:00:00Z">May 01, 2021</time>
+  </header>
+  <h2 id="about-this-project">About This Project</h2>
+<p>The purpose of this project was to learn the Discord API/Python for the development of
+the discord bot for Trench League. This journal entry will describe my experience creating
+a basic discord bot with no experience with the Discord API.</p>
+<h2 id="where-to-start">Where to Start?</h2>
+<p>Step 1 is to actually create the bot application. This is done by going to</p>
+<p><code>https://discord.com/developers/applications</code></p>
+<p>and creating a <code>New Application</code>. You then
+create the bot, add it to a guild, and you are off to the races.</p>
+<h2 id="exploring-the-api">Exploring the API</h2>
+<p>My language of choice for this project is Python. I chose Python because I have already
+learned a lot of C++ in school and wanted to brush up on my Python skills. Also, there
+is a lot of documentation out there about the Discord API and Python, so it makes this
+process easier.</p>
+<p>To start, you create <code>bot.py</code> and import the discord API</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f92672">from</span> discord.ext <span style="color:#f92672">import</span> commands
+</code></pre></div><p>Next, create a bot object</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">bot <span style="color:#f92672">=</span> commands<span style="color:#f92672">.</span>Bot(command_prefix <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;$&#39;</span>)
+</code></pre></div><p>Then, create an event to print something into the terminal on startup</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#75715e"># EFFECTS: Prints &#39;Ready&#39; when the bot starts up</span>
+<span style="color:#a6e22e">@bot</span><span style="color:#f92672">.</span>event
+<span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">on_ready</span>():
+    print(<span style="color:#e6db74">&#39;rdy&#39;</span>)
+</code></pre></div><p>At the end of the file, add a line to run the bot</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">bot<span style="color:#f92672">.</span>run(<span style="color:#e6db74">&#39;&lt;TOKEN&gt;&#39;</span>)
+</code></pre></div><p><img src="/post/images/rdy.png" alt="rdy"></p>
+<p>And Voilà, we have a functioning bot.</p>
+<p>The next step is to add some commands. We can make a basic command that causes the bot to
+say something in the chat when prompted.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#75715e"># Effects: Bot says &#39;pong&#39; after user says &#39;ping&#39;</span>
+<span style="color:#a6e22e">@bot</span><span style="color:#f92672">.</span>command()
+<span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">ping</span>(ctx):
+    <span style="color:#66d9ef">await</span> ctx<span style="color:#f92672">.</span>send(<span style="color:#e6db74">&#34;pong&#34;</span>)
+</code></pre></div><p><img src="/post/images/ping.png" alt="ping"></p>
+<h2 id="a-more-advanced-program">A More Advanced Program</h2>
+<p>One day, my friends and I came up with the idea of creating a bot that every single user in a
+Discord voice channel into a different voice channel when a specific friends joins our
+channel. Given that I was learning the Discord API for Trench League anyways, I figured
+that this would be a good opportunity to practice.</p>
+<p>The function of this bot is as follows:</p>
+<ol>
+<li>Gets the User ID of the Victim via a command</li>
+<li>When any user joins a voice channel, the bot checks if the user is the victim</li>
+<li>If the user is the victim, the bot will move every single user in that voice channel
+into another voice channel but the victim. This process repeats every time the victim tries
+to join a populated voice channel.</li>
+</ol>
+<h2 id="code">Code</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#75715e"># Description: a discord bot that moves all users in a channel to another channel when a</span>
+<span style="color:#75715e"># specific user (specified by a command) joins a populated channel.</span>
+
+<span style="color:#f92672">import</span> discord
+<span style="color:#f92672">from</span> discord.ext <span style="color:#f92672">import</span> commands
+<span style="color:#f92672">import</span> os
+<span style="color:#f92672">import</span> random
+
+
+intents <span style="color:#f92672">=</span> discord<span style="color:#f92672">.</span>Intents<span style="color:#f92672">.</span>default()
+intents<span style="color:#f92672">.</span>members <span style="color:#f92672">=</span> <span style="color:#66d9ef">True</span>
+bot <span style="color:#f92672">=</span> commands<span style="color:#f92672">.</span>Bot(command_prefix <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;$&#39;</span>, intents <span style="color:#f92672">=</span> intents)
+
+<span style="color:#75715e"># Globals</span>
+currentId <span style="color:#f92672">=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>
+vc_ids <span style="color:#f92672">=</span> []
+guild_id <span style="color:#f92672">=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>
+
+<span style="color:#75715e"># EFFECTS: Prints &#39;Ready&#39; when the bot starts up</span>
+<span style="color:#a6e22e">@bot</span><span style="color:#f92672">.</span>event
+<span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">on_ready</span>():
+    print(<span style="color:#e6db74">&#39;rdy&#39;</span>)
+
+<span style="color:#75715e"># Effects: When a user with user_id = currentId connects to an active vc, all other</span>
+<span style="color:#75715e"># members of the vc will be moved to a different random vc from vc_ids</span>
+<span style="color:#75715e"># Requires: currentId is a valid user id</span>
+<span style="color:#a6e22e">@bot</span><span style="color:#f92672">.</span>event
+<span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">on_voice_state_update</span>(member, before, after):
+    <span style="color:#66d9ef">global</span> currentId
+    <span style="color:#66d9ef">global</span> vc_ids
+    <span style="color:#66d9ef">global</span> guild_id
+
+    <span style="color:#75715e">#print (member.id)</span>
+    <span style="color:#66d9ef">if</span> (member<span style="color:#f92672">.</span>voice <span style="color:#f92672">!=</span> <span style="color:#66d9ef">None</span>):
+        joinedChannel <span style="color:#f92672">=</span> member<span style="color:#f92672">.</span>voice<span style="color:#f92672">.</span>channel<span style="color:#f92672">.</span>id
+    <span style="color:#66d9ef">else</span>:
+        joinedChannel <span style="color:#f92672">=</span> <span style="color:#66d9ef">None</span>
+    <span style="color:#75715e">#print (joinedChannel)</span>
+
+    <span style="color:#66d9ef">if</span> (member<span style="color:#f92672">.</span>id <span style="color:#f92672">==</span> currentId <span style="color:#f92672">and</span> joinedChannel <span style="color:#f92672">!=</span> <span style="color:#66d9ef">None</span>):
+        <span style="color:#75715e"># Get destination channel to move user to </span>
+        destination_channel <span style="color:#f92672">=</span> joinedChannel
+        <span style="color:#66d9ef">while</span> (destination_channel <span style="color:#f92672">==</span> joinedChannel):
+            destination_channel <span style="color:#f92672">=</span> random<span style="color:#f92672">.</span>choice(vc_ids)
+        <span style="color:#75715e">#print (destination_channel)</span>
+
+        <span style="color:#75715e"># Get a list of all of the users in the joined channel</span>
+        curChannel <span style="color:#f92672">=</span> bot<span style="color:#f92672">.</span>get_channel(joinedChannel) <span style="color:#75715e">#channel type given joinedChannel id</span>
+        curMembers <span style="color:#f92672">=</span> [] <span style="color:#75715e">#list of current members</span>
+        <span style="color:#66d9ef">for</span> member <span style="color:#f92672">in</span> curChannel<span style="color:#f92672">.</span>members:
+            curMembers<span style="color:#f92672">.</span>append(member<span style="color:#f92672">.</span>id)
+        
+        <span style="color:#75715e"># print (&#34;curMembers&#34;)</span>
+        <span style="color:#75715e"># print (curMembers)</span>
+
+        <span style="color:#75715e"># Move each member in the joined channel to the destination channel if their id</span>
+        <span style="color:#75715e"># is not currentId</span>
+
+        <span style="color:#66d9ef">for</span> m <span style="color:#f92672">in</span> curMembers:
+            <span style="color:#66d9ef">if</span> (m <span style="color:#f92672">!=</span> currentId):
+                guild <span style="color:#f92672">=</span> bot<span style="color:#f92672">.</span>get_guild(guild_id) 
+                mem <span style="color:#f92672">=</span> guild<span style="color:#f92672">.</span>get_member(m)
+                destChannel <span style="color:#f92672">=</span> bot<span style="color:#f92672">.</span>get_channel(destination_channel)
+                <span style="color:#66d9ef">await</span> mem<span style="color:#f92672">.</span>move_to(destChannel)
+    
+
+<span style="color:#75715e"># Effects: sets global currentId variable to the user_id specified by the command </span>
+<span style="color:#75715e"># and sets the guild_id to the guild where the message came from</span>
+<span style="color:#75715e"># and gets all of the valid voice channels in a guild that aren&#39;t afk channels</span>
+<span style="color:#75715e"># Ex: &#39;$user 12345&#39; sets global currentId to 12345 (assuming 12345 is a valid id), </span>
+<span style="color:#75715e"># otherwise function that moves users won&#39;t do anything</span>
+<span style="color:#75715e"># Note: Setting this variable to an invalid id (ex: $user -1) is a good way to stop the</span>
+<span style="color:#75715e"># user moving process from happening</span>
+<span style="color:#a6e22e">@bot</span><span style="color:#f92672">.</span>command()
+<span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">user</span>(ctx, user_id : int):
+    <span style="color:#66d9ef">global</span> currentId
+    <span style="color:#66d9ef">global</span> vc_ids
+    <span style="color:#66d9ef">global</span> guild_id
+    <span style="color:#75715e">#user = await ctx.guild.fetch_member(user_id)</span>
+    <span style="color:#75715e">#print(user)</span>
+    <span style="color:#75715e"># stores user id from the command</span>
+    currentId <span style="color:#f92672">=</span> user_id
+    print(<span style="color:#e6db74">&#34;current user:&#34;</span>)
+    print(currentId)
+    <span style="color:#75715e"># stores the server id in which the command was sent</span>
+    guild_id <span style="color:#f92672">=</span> ctx<span style="color:#f92672">.</span>guild<span style="color:#f92672">.</span>id
+    <span style="color:#75715e"># print(guild_id)</span>
+    <span style="color:#75715e"># stores the voice channel ids in a list in the server in which the cmd was sent</span>
+    guild <span style="color:#f92672">=</span> bot<span style="color:#f92672">.</span>get_guild(guild_id) 
+    afk <span style="color:#f92672">=</span> guild<span style="color:#f92672">.</span>afk_channel
+    afk_id <span style="color:#f92672">=</span> afk<span style="color:#f92672">.</span>id
+    <span style="color:#75715e"># print (afk_id)</span>
+    vcs <span style="color:#f92672">=</span> guild<span style="color:#f92672">.</span>voice_channels
+    vc_ids <span style="color:#f92672">=</span> []
+    <span style="color:#66d9ef">for</span> vc <span style="color:#f92672">in</span> vcs:
+        <span style="color:#66d9ef">if</span> vc<span style="color:#f92672">.</span>id <span style="color:#f92672">!=</span> afk_id:
+            vc_ids<span style="color:#f92672">.</span>append(vc<span style="color:#f92672">.</span>id)
+    <span style="color:#75715e"># print (vc_ids)</span>
+    <span style="color:#75715e">#deletes command message</span>
+    <span style="color:#66d9ef">await</span> ctx<span style="color:#f92672">.</span>message<span style="color:#f92672">.</span>delete() 
+
+
+bot<span style="color:#f92672">.</span>run(<span style="color:#e6db74">&#39;TOKEN&#39;</span>)
+</code></pre></div>
+</article>
+
+
+
+</html>
