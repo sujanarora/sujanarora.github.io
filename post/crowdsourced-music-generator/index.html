@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<title>Crowdsourced Music Generator | Sujan Arora&#39;s Project Journal</title>
+<meta charset="utf-8">
+<meta name="generator" content="Hugo 0.88.1" />
+<meta name="description" content="My Journal">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://sujanarora.github.io/css/index.css">
+<link rel="canonical" href="https://sujanarora.github.io/post/crowdsourced-music-generator/">
+<link rel="alternate" type="application/rss+xml" href="" title="Sujan Arora&#39;s Project Journal">
+
+<header>
+  
+    <a href="https://sujanarora.github.io/" class="title">Sujan Arora&#39;s Project Journal</a>
+  
+  
+</header>
+
+<article>
+  <header>
+    <h1>Crowdsourced Music Generator</h1>
+    <time datetime="2019-08-05T00:00:00Z">August 05, 2019</time>
+  </header>
+  <h2 id="about">About</h2>
+<p>I spent the majority of my 2019 summer at Carleton College at the Summer Computer Science
+Institute camp. Throughout this one-month-long experience, I took classes in Natural
+Language Processing, Computer Vision, and Computational Music, and created a research
+project (focused on computational music) with a partner.</p>
+<p>The idea for our project was to explore a way to allow users to change the type of music
+that they are listening to in a public place. For example, if you are in an airport or a
+coffee shop and you do not like the music being played, you can click a button on your
+personal device that slightly alters the music being played in real-time. If the music is too slow for
+your taste, you can speed up the tempo. If it is too sad, you can switch to a major key. Or,
+if it is too loud, you can lower the volume. Users also have access to a sequencer
+which allows them to play specific notes and collaborate in real-time.</p>
+<h2 id="project-overview">Project Overview</h2>
+<p>We decided to use Flask as our front-end web framework where the users interact with the
+UI that allows them to control the music. Requests are sent through a socket to a Puredata
+patch which processes the requests and outputs a &ldquo;note&rdquo; to be played by our Virtual MIDI
+Keyboard (VMPK).</p>
+<p><img src="/post/images/site.png" alt="site.png">
+<em>The User Interface</em></p>
+<h2 id="code">Code</h2>
+<p>Routes.py</p>
+<p><em>Interprets the user&rsquo;s requests</em></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f92672">from</span> app <span style="color:#f92672">import</span> app
+<span style="color:#f92672">import</span> flask
+<span style="color:#f92672">from</span> flask <span style="color:#f92672">import</span> Flask, render_template, request, jsonify
+<span style="color:#f92672">import</span> socket
+<span style="color:#f92672">import</span> threading
+<span style="color:#f92672">import</span> time
+<span style="color:#f92672">import</span> random
+
+
+
+
+<span style="color:#75715e">#pd socket host/port</span>
+HOST <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;127.0.0.1&#39;</span>  <span style="color:#75715e"># The server&#39;s hostname or IP address</span>
+PORT <span style="color:#f92672">=</span> <span style="color:#ae81ff">9001</span>        <span style="color:#75715e"># The port used by the server</span>
+
+<span style="color:#75715e">#lists for scale offsets for key changes (arpeggiating)</span>
+majorOffsets <span style="color:#f92672">=</span> [<span style="color:#ae81ff">0</span>,<span style="color:#ae81ff">4</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">12</span>,<span style="color:#ae81ff">16</span>,<span style="color:#ae81ff">19</span>,<span style="color:#ae81ff">24</span>]
+minorOffsets <span style="color:#f92672">=</span> [<span style="color:#ae81ff">0</span>,<span style="color:#ae81ff">3</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">12</span>,<span style="color:#ae81ff">15</span>,<span style="color:#ae81ff">19</span>,<span style="color:#ae81ff">24</span>]
+
+<span style="color:#75715e">#IP overload prevention dictionary</span>
+ipDict <span style="color:#f92672">=</span> {}
+whitelistIP <span style="color:#f92672">=</span> [<span style="color:#e6db74">&#39;137.22.183.192&#39;</span>, <span style="color:#e6db74">&#39;127.0.0.1&#39;</span>,<span style="color:#e6db74">&#39;137.22.5.44&#39;</span>]
+
+key <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>
+harmonyTrue <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>
+midiGenType <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+tempcounter <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+<span style="color:#75715e">#global variables sent to pd in noteout() msg</span>
+midi <span style="color:#f92672">=</span> <span style="color:#ae81ff">60</span>
+duration <span style="color:#f92672">=</span> <span style="color:#ae81ff">500</span>
+channel <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>
+volume <span style="color:#f92672">=</span> <span style="color:#ae81ff">90</span>
+baselineVolume <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+baselineMidi <span style="color:#f92672">=</span> <span style="color:#ae81ff">36</span>
+baselineDuration <span style="color:#f92672">=</span> <span style="color:#ae81ff">1000</span>
+baselineChannel <span style="color:#f92672">=</span> <span style="color:#ae81ff">4</span>
+
+<span style="color:#75715e">#global array for the sequencer</span>
+
+sequencerArray <span style="color:#f92672">=</span> [[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>]]
+
+
+
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">checkIP</span>():
+    <span style="color:#66d9ef">global</span> ipDict
+    <span style="color:#66d9ef">global</span> whitelistIP
+    testIP <span style="color:#f92672">=</span> request<span style="color:#f92672">.</span>environ<span style="color:#f92672">.</span>get(<span style="color:#e6db74">&#39;HTTP_X_REAL_IP&#39;</span>, request<span style="color:#f92672">.</span>remote_addr)
+    <span style="color:#66d9ef">if</span> testIP <span style="color:#f92672">in</span> whitelistIP:
+        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">True</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">if</span> testIP <span style="color:#f92672">not</span> <span style="color:#f92672">in</span> ipDict:
+            ipDict[testIP] <span style="color:#f92672">=</span> time<span style="color:#f92672">.</span>time()
+            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">True</span>
+        <span style="color:#66d9ef">else</span>:
+            <span style="color:#66d9ef">if</span> time<span style="color:#f92672">.</span>time()<span style="color:#f92672">-</span>ipDict[testIP] <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">2.0</span>:
+                ipDict[testIP] <span style="color:#f92672">=</span> time<span style="color:#f92672">.</span>time()
+                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">True</span>
+            <span style="color:#66d9ef">else</span>:
+                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">False</span>
+
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">is_ip_whitelisted</span>():
+    <span style="color:#66d9ef">global</span> whitelistIP
+    testIP <span style="color:#f92672">=</span> request<span style="color:#f92672">.</span>environ<span style="color:#f92672">.</span>get(<span style="color:#e6db74">&#39;HTTP_X_REAL_IP&#39;</span>, request<span style="color:#f92672">.</span>remote_addr)
+    <span style="color:#66d9ef">if</span> testIP <span style="color:#f92672">in</span> whitelistIP:
+        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">True</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">False</span>
+
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">sequencerMidi</span>():
+    <span style="color:#66d9ef">global</span> sequencerArray
+
+
+
+<span style="color:#75715e">#pd socket connect</span>
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">noteout</span>():
+    <span style="color:#66d9ef">with</span> socket<span style="color:#f92672">.</span>socket(socket<span style="color:#f92672">.</span>AF_INET, socket<span style="color:#f92672">.</span>SOCK_STREAM) <span style="color:#66d9ef">as</span> s:
+        s<span style="color:#f92672">.</span>connect((HOST, PORT))
+        <span style="color:#75715e">#msg sent to unpack</span>
+        t <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+        <span style="color:#66d9ef">while</span> <span style="color:#66d9ef">True</span>:
+            <span style="color:#66d9ef">global</span> key
+            <span style="color:#66d9ef">global</span> midi
+            <span style="color:#66d9ef">global</span> harmonyTrue
+            <span style="color:#66d9ef">global</span> baselineMidi
+            <span style="color:#66d9ef">global</span> baselineVolume
+            <span style="color:#66d9ef">global</span> baselineDuration
+            <span style="color:#66d9ef">global</span> baselineChannel
+            <span style="color:#66d9ef">global</span> midiGenType
+            <span style="color:#66d9ef">global</span> sequencerArray
+            <span style="color:#66d9ef">global</span> duration
+
+            <span style="color:#66d9ef">if</span> midiGenType <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>:
+                <span style="color:#75715e">#random midi gen</span>
+                <span style="color:#66d9ef">if</span> key <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span>:
+                    tempMidi <span style="color:#f92672">=</span> <span style="color:#ae81ff">62</span>
+                    offsetIndex <span style="color:#f92672">=</span> random<span style="color:#f92672">.</span>randint (<span style="color:#ae81ff">0</span>,<span style="color:#ae81ff">6</span>)
+                    midi <span style="color:#f92672">=</span> tempMidi <span style="color:#f92672">+</span> majorOffsets[offsetIndex]
+                <span style="color:#66d9ef">elif</span> key <span style="color:#f92672">==</span> <span style="color:#ae81ff">2</span>:
+                    tempMidi <span style="color:#f92672">=</span> <span style="color:#ae81ff">58</span>
+                    offsetIndex <span style="color:#f92672">=</span> random<span style="color:#f92672">.</span>randint (<span style="color:#ae81ff">0</span>,<span style="color:#ae81ff">6</span>)
+                    midi <span style="color:#f92672">=</span> tempMidi <span style="color:#f92672">+</span> minorOffsets[offsetIndex]
+
+                <span style="color:#66d9ef">if</span> harmonyTrue <span style="color:#f92672">%</span> <span style="color:#ae81ff">2</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>:
+                    baselineMidi <span style="color:#f92672">=</span> midi <span style="color:#f92672">-</span> <span style="color:#ae81ff">7</span>
+                    baselineDuration <span style="color:#f92672">=</span> duration
+                    baselineVolume <span style="color:#f92672">=</span> volume
+                <span style="color:#66d9ef">elif</span> harmonyTrue <span style="color:#f92672">%</span> <span style="color:#ae81ff">2</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span>:
+                    baselineVolume <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+
+
+                msg <span style="color:#f92672">=</span> str(midi) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(duration) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(channel <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(volume) <span style="color:#f92672">+</span> \
+                <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(baselineVolume)<span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(baselineMidi) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(baselineDuration) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(baselineChannel) <span style="color:#f92672">+</span><span style="color:#e6db74">&#34; ;&#34;</span>
+                s<span style="color:#f92672">.</span>send(msg<span style="color:#f92672">.</span>encode(<span style="color:#e6db74">&#39;utf-8&#39;</span>))
+
+                time<span style="color:#f92672">.</span>sleep(duration<span style="color:#f92672">/</span><span style="color:#ae81ff">1000</span>)
+
+
+            <span style="color:#75715e">#sequencer</span>
+            <span style="color:#66d9ef">else</span>:
+
+                tempDuration <span style="color:#f92672">=</span> duration
+                midiRoot <span style="color:#f92672">=</span> <span style="color:#ae81ff">60</span>
+                majorSequencerOffsets <span style="color:#f92672">=</span> [<span style="color:#ae81ff">0</span>,<span style="color:#ae81ff">2</span>,<span style="color:#ae81ff">4</span>,<span style="color:#ae81ff">5</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">9</span>,<span style="color:#ae81ff">11</span>]
+                minorSequencerOffsets <span style="color:#f92672">=</span> [<span style="color:#ae81ff">0</span>,<span style="color:#ae81ff">2</span>,<span style="color:#ae81ff">3</span>,<span style="color:#ae81ff">5</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">8</span>,<span style="color:#ae81ff">10</span>]
+                sequencerMidiSend <span style="color:#f92672">=</span> []
+                <span style="color:#66d9ef">for</span> r <span style="color:#f92672">in</span> sequencerArray:
+                    <span style="color:#66d9ef">if</span> r[t] <span style="color:#f92672">!=</span> <span style="color:#ae81ff">7</span>:
+                        <span style="color:#66d9ef">if</span> key <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span>:
+                            midiRoot <span style="color:#f92672">=</span> <span style="color:#ae81ff">60</span>
+                            sequencerMidiSend<span style="color:#f92672">.</span>append(midiRoot <span style="color:#f92672">+</span> majorSequencerOffsets[int(r[t])])
+                        <span style="color:#66d9ef">elif</span> key <span style="color:#f92672">==</span> <span style="color:#ae81ff">2</span>:
+                            midiRoot <span style="color:#f92672">=</span> <span style="color:#ae81ff">58</span>
+                            sequencerMidiSend<span style="color:#f92672">.</span>append(midiRoot <span style="color:#f92672">+</span> minorSequencerOffsets[int(r[t])])
+                <span style="color:#66d9ef">for</span> i <span style="color:#f92672">in</span> sequencerMidiSend:
+                    msg <span style="color:#f92672">=</span> str(i) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(tempDuration) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(channel <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(volume) <span style="color:#f92672">+</span> \
+                    <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(<span style="color:#e6db74">&#34;0&#34;</span>)<span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(baselineMidi) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(baselineDuration) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> str(baselineChannel) <span style="color:#f92672">+</span><span style="color:#e6db74">&#34; ;&#34;</span>
+                    s<span style="color:#f92672">.</span>send(msg<span style="color:#f92672">.</span>encode(<span style="color:#e6db74">&#39;utf-8&#39;</span>))
+
+                time<span style="color:#f92672">.</span>sleep(tempDuration<span style="color:#f92672">/</span><span style="color:#ae81ff">1000</span>)
+                t <span style="color:#f92672">=</span> (t<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>) <span style="color:#f92672">%</span> <span style="color:#ae81ff">8</span>
+
+<span style="color:#75715e">#creating a new thread to handle the infinite msg output</span>
+
+<span style="color:#66d9ef">class</span> <span style="color:#a6e22e">musicThread</span> (threading<span style="color:#f92672">.</span>Thread):
+    <span style="color:#66d9ef">def</span> __init__(self, threadID, name):
+        threading<span style="color:#f92672">.</span>Thread<span style="color:#f92672">.</span>__init__(self)
+        self<span style="color:#f92672">.</span>threadID <span style="color:#f92672">=</span> threadID
+        self<span style="color:#f92672">.</span>name <span style="color:#f92672">=</span> name
+    <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">run</span>(self):
+        noteout()
+
+thread1 <span style="color:#f92672">=</span> musicThread(<span style="color:#ae81ff">1</span>, <span style="color:#e6db74">&#34;Thread-1&#34;</span>)
+thread1<span style="color:#f92672">.</span>start()
+
+
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/&#39;</span>)
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/index&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">index</span>():
+    <span style="color:#66d9ef">return</span> render_template(<span style="color:#e6db74">&#34;index.html&#34;</span>)
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/major_key&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">major_key</span>():
+    <span style="color:#66d9ef">if</span> checkIP():
+        <span style="color:#66d9ef">global</span> key
+        key <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;major&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;wait&#34;</span>
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/minor_key&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">minor_key</span>():
+    <span style="color:#66d9ef">if</span> checkIP():
+        <span style="color:#66d9ef">global</span> key
+        key <span style="color:#f92672">=</span> <span style="color:#ae81ff">2</span>
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;minor&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;wait&#34;</span>
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/increase_volume&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">increase_volume</span>():
+    <span style="color:#66d9ef">global</span> volume
+    <span style="color:#66d9ef">if</span> checkIP():
+        <span style="color:#66d9ef">if</span> volume <span style="color:#f92672">&lt;=</span> <span style="color:#ae81ff">127</span>:
+            volume <span style="color:#f92672">+=</span> <span style="color:#ae81ff">8</span>
+            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;increasevolume&#34;</span>
+        <span style="color:#66d9ef">else</span>:
+            <span style="color:#66d9ef">pass</span>
+            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;increasevolume&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;wait&#34;</span>
+
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/decrease_volume&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">decrease_volume</span>():
+    <span style="color:#66d9ef">global</span> volume
+    <span style="color:#66d9ef">if</span> checkIP():
+        <span style="color:#66d9ef">if</span> volume <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">30</span>:
+            volume <span style="color:#f92672">-=</span> <span style="color:#ae81ff">8</span>
+            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;decreasevolume&#34;</span>
+        <span style="color:#66d9ef">else</span>:
+            <span style="color:#66d9ef">pass</span>
+            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;decreasevolume&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;wait&#34;</span>
+
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/increase_tempo&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">increase_tempo</span>():
+    <span style="color:#66d9ef">global</span> duration
+    <span style="color:#66d9ef">if</span> checkIP():
+        <span style="color:#66d9ef">if</span> duration <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">200</span>:
+            duration <span style="color:#f92672">=</span> (duration <span style="color:#f92672">/</span> <span style="color:#ae81ff">8</span>) <span style="color:#f92672">*</span> <span style="color:#ae81ff">7</span>
+            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;increasetempo&#34;</span>
+        <span style="color:#66d9ef">else</span>:
+            <span style="color:#66d9ef">pass</span>
+            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;increasetempo&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;wait&#34;</span>
+
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/decrease_tempo&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">decrease_tempo</span>():
+    <span style="color:#66d9ef">global</span> duration
+    <span style="color:#66d9ef">if</span> checkIP():
+        <span style="color:#66d9ef">if</span> duration <span style="color:#f92672">&lt;=</span> <span style="color:#ae81ff">5000</span>:
+            duration <span style="color:#f92672">=</span> (duration <span style="color:#f92672">*</span> <span style="color:#ae81ff">8</span>) <span style="color:#f92672">/</span> <span style="color:#ae81ff">7</span>
+            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;decreasetempo&#34;</span>
+        <span style="color:#66d9ef">else</span>:
+            <span style="color:#66d9ef">pass</span>
+            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;decreasetempo&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;wait&#34;</span>
+
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#34;/add_bassline&#34;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">add_baseline</span>():
+    <span style="color:#66d9ef">global</span> harmonyTrue
+    <span style="color:#66d9ef">if</span> checkIP():
+        harmonyTrue <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;toggleharmony&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;wait&#34;</span>
+
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/change_instrument&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">change_instrument</span>():
+    <span style="color:#66d9ef">global</span> channel
+    <span style="color:#66d9ef">if</span> checkIP():
+        channel <span style="color:#f92672">=</span> ((channel<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>)<span style="color:#f92672">%</span><span style="color:#ae81ff">3</span>)
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;intrunment&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;wait&#34;</span>
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/toggle_midi&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">toggle_midi</span>():
+    <span style="color:#66d9ef">global</span> midiGenType
+    <span style="color:#66d9ef">global</span> tempcounter
+    <span style="color:#66d9ef">if</span> is_ip_whitelisted():
+        tempcounter <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>
+        <span style="color:#66d9ef">if</span> tempcounter <span style="color:#f92672">%</span> <span style="color:#ae81ff">2</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span>:
+            midiGenType <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>
+        <span style="color:#66d9ef">else</span>:
+            midiGenType <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+        print (midiGenType)
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;toggle&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;Not Administrator&#34;</span>
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route(<span style="color:#e6db74">&#39;/clearSequencer&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">clear_sequencer</span>():
+    <span style="color:#66d9ef">global</span> sequencerArray
+    <span style="color:#66d9ef">if</span> is_ip_whitelisted():
+        sequencerArray <span style="color:#f92672">=</span> [[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>],[<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>,<span style="color:#ae81ff">7</span>]]
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;cleared&#34;</span>
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;Not Administrator&#34;</span>
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route (<span style="color:#e6db74">&#39;/sequence_action&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">sequenceAction</span>():
+    <span style="color:#66d9ef">global</span> sequencerArray
+
+    sequencerOffsets <span style="color:#f92672">=</span> [<span style="color:#ae81ff">6</span>,<span style="color:#ae81ff">5</span>,<span style="color:#ae81ff">4</span>,<span style="color:#ae81ff">3</span>,<span style="color:#ae81ff">2</span>,<span style="color:#ae81ff">1</span>,<span style="color:#ae81ff">0</span>]
+
+    data <span style="color:#f92672">=</span> (request<span style="color:#f92672">.</span>args)
+    print (data)
+
+    <span style="color:#66d9ef">if</span> data[<span style="color:#e6db74">&#39;ischecked&#39;</span>] <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;1&#39;</span>:
+        <span style="color:#75715e">#midiData = midi + sequencerMajorOffsets[int(data[&#39;row&#39;])]</span>
+        sequencerArray [int(data[<span style="color:#e6db74">&#39;row&#39;</span>])][int(data[<span style="color:#e6db74">&#39;column&#39;</span>])] <span style="color:#f92672">=</span> sequencerOffsets[int(data[<span style="color:#e6db74">&#39;row&#39;</span>])]
+    <span style="color:#66d9ef">else</span>:
+        <span style="color:#75715e">#midiData = 0</span>
+        sequencerArray [int(data[<span style="color:#e6db74">&#39;row&#39;</span>])][int(data[<span style="color:#e6db74">&#39;column&#39;</span>])] <span style="color:#f92672">=</span> <span style="color:#ae81ff">7</span>
+
+
+    <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;sequencer&#34;</span>
+
+
+
+<span style="color:#a6e22e">@app</span><span style="color:#f92672">.</span>route (<span style="color:#e6db74">&#39;/request_array&#39;</span>)
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">requestArray</span>():
+    <span style="color:#66d9ef">global</span> sequencerArray
+    <span style="color:#66d9ef">return</span> jsonify(sequencerArray)
+
+
+<span style="color:#66d9ef">if</span> __name__ <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;__main__&#34;</span>:
+    app<span style="color:#f92672">.</span>run(host<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;0.0.0.0&#39;</span>, port<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;5000&#34;</span>)
+</code></pre></div><p>playnote.py</p>
+<p><em>manages the encoded message sent to the puredata patch</em></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f92672">import</span> socket
+
+HOST <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;127.0.0.1&#39;</span>  <span style="color:#75715e"># The server&#39;s hostname or IP address</span>
+PORT <span style="color:#f92672">=</span> <span style="color:#ae81ff">9001</span>        <span style="color:#75715e"># The port used by the server</span>
+
+<span style="color:#66d9ef">def</span> <span style="color:#a6e22e">noteout</span>(midi, duration):
+    <span style="color:#66d9ef">with</span> socket<span style="color:#f92672">.</span>socket(socket<span style="color:#f92672">.</span>AF_INET, socket<span style="color:#f92672">.</span>SOCK_STREAM) <span style="color:#66d9ef">as</span> s:
+        s<span style="color:#f92672">.</span>connect((HOST, PORT))
+        <span style="color:#66d9ef">while</span> <span style="color:#66d9ef">True</span>:
+            <span style="color:#75715e">#midi = str(input(&#34;midi&#34;))</span>
+            <span style="color:#75715e">#duration = str(input(&#34;duration&#34;))</span>
+            msg <span style="color:#f92672">=</span> midi <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> duration <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; ;&#34;</span>
+            s<span style="color:#f92672">.</span>send(msg<span style="color:#f92672">.</span>encode(<span style="color:#e6db74">&#39;utf-8&#39;</span>))
+</code></pre></div><p>server.pd</p>
+<p><em>The puredata patch</em></p>
+<p><img src="/post/images/pd.png" alt="pd.png"></p>
+<p>index.html</p>
+<p><em>Manages User Interface</em></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-HTML" data-lang="HTML"><span style="color:#75715e">&lt;!DOCTYPE HTML&gt;</span>
+&lt;<span style="color:#f92672">html</span>&gt;
+  &lt;<span style="color:#f92672">head</span>&gt;
+    &lt;<span style="color:#f92672">title</span>&gt;Crowdsourcing Music&lt;/<span style="color:#f92672">title</span>&gt;
+    &lt;<span style="color:#f92672">link</span> <span style="color:#a6e22e">rel</span><span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;stylesheet&#34;</span> <span style="color:#a6e22e">type</span><span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;text/css&#34;</span> <span style="color:#a6e22e">href</span><span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;{{ url_for(&#39;static&#39;,filename=&#39;styles/styles.css&#39;) }}&#34;</span>&gt;
+    &lt;<span style="color:#f92672">script</span> <span style="color:#a6e22e">src</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;{{url_for(&#39;static&#39;, filename=&#39;jquery-3.4.1.min.js&#39;)}}&#34;</span>&gt;&lt;/<span style="color:#f92672">script</span>&gt;
+    &lt;<span style="color:#f92672">script</span> <span style="color:#a6e22e">src</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;{{url_for(&#39;static&#39;, filename=&#39;index.js&#39;)}}&#34;</span>&gt;&lt;/<span style="color:#f92672">script</span>&gt;
+  &lt;/<span style="color:#f92672">head</span>&gt;
+  &lt;<span style="color:#f92672">body</span>&gt;
+    &lt;<span style="color:#f92672">h1</span>&gt;Crowdsourced Generated Music&lt;/<span style="color:#f92672">h1</span>&gt;
+    &lt;<span style="color:#f92672">h4</span>&gt;Select an option to begin.&lt;/<span style="color:#f92672">h4</span>&gt;
+
+    &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;main-hub&#34;</span>&gt;
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return changeMajorKey()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Change to major key&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return changeMinorKey()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Change to minor key&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return increaseVolume()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Increase the volume&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return decreaseVolume()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Decrease the volume&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return increaseTempo()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Increase the tempo&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return decreaseTempo()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Decrease the tempo&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return addBassline()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Toggle Harmony&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return changeInstrument()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Change the MIDI instrument&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return toggleMidiType()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Toggle sequencer&lt;<span style="color:#f92672">br</span>&gt;🔒&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+      &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;container&#34;</span>&gt;
+          &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;overlay&#34;</span>&gt;
+            &lt;<span style="color:#f92672">button</span> <span style="color:#a6e22e">onclick </span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;return clearSequencer()&#34;</span>&gt;&lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">class</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;text&#34;</span>&gt;Clear sequencer&lt;<span style="color:#f92672">br</span>&gt;🔒&lt;/<span style="color:#f92672">div</span>&gt;&lt;/<span style="color:#f92672">button</span>&gt;
+          &lt;/<span style="color:#f92672">div</span>&gt;
+      &lt;/<span style="color:#f92672">div</span>&gt;
+
+    &lt;/<span style="color:#f92672">div</span>&gt;
+    &lt;<span style="color:#f92672">div</span> <span style="color:#a6e22e">id</span><span style="color:#f92672">=</span><span style="color:#e6db74">&#34;sequencer&#34;</span>&gt;
+
+    &lt;/<span style="color:#f92672">div</span>&gt;
+  &lt;/<span style="color:#f92672">body</span>&gt;
+&lt;/<span style="color:#f92672">html</span>&gt;
+</code></pre></div><p>styles.css</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-css" data-lang="css"><span style="color:#f92672">body</span> {
+  <span style="color:#66d9ef">text-align</span>: <span style="color:#66d9ef">center</span>;
+  <span style="color:#66d9ef">background-color</span>: <span style="color:#ae81ff">#c0c0c0</span>;
+}
+
+.<span style="color:#a6e22e">main-hub</span> {
+  <span style="color:#66d9ef">display</span>: <span style="color:#66d9ef">flex</span>;
+  <span style="color:#66d9ef">justify-content</span>: <span style="color:#66d9ef">center</span>;
+  <span style="color:#75715e">/*@media vertical stacking*/</span>
+}
+
+.<span style="color:#a6e22e">container</span> {
+  <span style="color:#66d9ef">display</span>: <span style="color:#66d9ef">block</span>;
+  <span style="color:#66d9ef">position</span>: <span style="color:#66d9ef">relative</span>;
+  <span style="color:#66d9ef">width</span>: <span style="color:#ae81ff">50</span><span style="color:#66d9ef">%</span>;
+}
+
+.<span style="color:#a6e22e">overlay</span> {
+  <span style="color:#66d9ef">top</span>: <span style="color:#ae81ff">0</span>;
+  <span style="color:#66d9ef">bottom</span>: <span style="color:#ae81ff">0</span>;
+  <span style="color:#66d9ef">left</span>: <span style="color:#ae81ff">0</span>;
+  <span style="color:#66d9ef">right</span>: <span style="color:#ae81ff">0</span>;
+  <span style="color:#66d9ef">height</span>: <span style="color:#ae81ff">180</span><span style="color:#66d9ef">px</span>;
+  <span style="color:#66d9ef">width</span>: <span style="color:#ae81ff">95</span><span style="color:#66d9ef">%</span>;
+  <span style="color:#66d9ef">transition</span>: <span style="color:#ae81ff">.5</span><span style="color:#66d9ef">s</span> <span style="color:#66d9ef">ease</span>;
+  <span style="color:#66d9ef">background-color</span>: <span style="color:#ae81ff">#4e5c61</span>;
+}
+
+
+.<span style="color:#a6e22e">text</span> {
+  <span style="color:#66d9ef">color</span>: <span style="color:#66d9ef">white</span>;
+  <span style="color:#66d9ef">font-size</span>: <span style="color:#ae81ff">20</span><span style="color:#66d9ef">px</span>;
+  <span style="color:#66d9ef">position</span>: <span style="color:#66d9ef">absolute</span>;
+  <span style="color:#66d9ef">top</span>: <span style="color:#ae81ff">50</span><span style="color:#66d9ef">%</span>;
+  <span style="color:#66d9ef">left</span>: <span style="color:#ae81ff">50</span><span style="color:#66d9ef">%</span>;
+  <span style="color:#66d9ef">-webkit-</span><span style="color:#66d9ef">transform</span>: translate(<span style="color:#ae81ff">-50</span><span style="color:#66d9ef">%</span>, <span style="color:#ae81ff">-50</span><span style="color:#66d9ef">%</span>);
+  <span style="color:#66d9ef">-ms-</span><span style="color:#66d9ef">transform</span>: translate(<span style="color:#ae81ff">-50</span><span style="color:#66d9ef">%</span>, <span style="color:#ae81ff">-50</span><span style="color:#66d9ef">%</span>);
+  <span style="color:#66d9ef">transform</span>: translate(<span style="color:#ae81ff">-50</span><span style="color:#66d9ef">%</span>, <span style="color:#ae81ff">-50</span><span style="color:#66d9ef">%</span>);
+  <span style="color:#66d9ef">text-align</span>: <span style="color:#66d9ef">center</span>;
+}
+
+.<span style="color:#a6e22e">overlay</span>:<span style="color:#a6e22e">hover</span> {
+  <span style="color:#66d9ef">background-color</span>: <span style="color:#ae81ff">#008CBA</span>;
+
+
+}
+#sequencer{
+  <span style="color:#66d9ef">margin-top</span>: <span style="color:#ae81ff">100</span><span style="color:#66d9ef">px</span>;
+}
+
+.<span style="color:#a6e22e">sequence</span> {
+    <span style="color:#66d9ef">-webkit-</span><span style="color:#66d9ef">appearance</span>:<span style="color:#66d9ef">none</span>;
+    <span style="color:#66d9ef">width</span>:<span style="color:#ae81ff">30</span><span style="color:#66d9ef">px</span>;
+    <span style="color:#66d9ef">height</span>:<span style="color:#ae81ff">30</span><span style="color:#66d9ef">px</span>;
+    <span style="color:#66d9ef">background</span>:<span style="color:#66d9ef">white</span>;
+    <span style="color:#66d9ef">border-radius</span>:<span style="color:#ae81ff">5</span><span style="color:#66d9ef">px</span>;
+    <span style="color:#66d9ef">border</span>:<span style="color:#ae81ff">2</span><span style="color:#66d9ef">px</span> <span style="color:#66d9ef">solid</span> <span style="color:#ae81ff">#555</span>;
+    <span style="color:#66d9ef">margin-left</span>: <span style="color:#ae81ff">5</span><span style="color:#66d9ef">px</span>;
+    <span style="color:#66d9ef">margin-right</span>: <span style="color:#ae81ff">5</span><span style="color:#66d9ef">px</span>;
+}
+.<span style="color:#a6e22e">sequence</span>:<span style="color:#a6e22e">checked</span> {
+    <span style="color:#66d9ef">background</span>: <span style="color:#ae81ff">#abd</span>;
+}
+
+.<span style="color:#a6e22e">sequence</span>:<span style="color:#a6e22e">focus</span> {
+  <span style="color:#66d9ef">outline</span>:<span style="color:#ae81ff">0</span>;
+}
+
+@<span style="color:#66d9ef">media</span> <span style="color:#f92672">only</span> <span style="color:#f92672">screen</span> <span style="color:#f92672">and</span> <span style="color:#f92672">(</span><span style="color:#f92672">max-width</span><span style="color:#f92672">:</span> <span style="color:#f92672">1280px</span><span style="color:#f92672">)</span> {
+.<span style="color:#a6e22e">main-hub</span> {
+  <span style="color:#66d9ef">display</span>: <span style="color:#66d9ef">block</span>;
+  <span style="color:#66d9ef">justify-content</span>: <span style="color:#66d9ef">center</span>;
+  <span style="color:#75715e">/*@media vertical stacking*/</span>
+}
+.<span style="color:#a6e22e">container</span> {
+  <span style="color:#66d9ef">display</span>: <span style="color:#66d9ef">block</span>;
+  <span style="color:#66d9ef">position</span>: <span style="color:#66d9ef">relative</span>;
+  <span style="color:#66d9ef">width</span>: <span style="color:#ae81ff">100</span><span style="color:#66d9ef">%</span>;
+}
+.<span style="color:#a6e22e">sequence</span> {
+    <span style="color:#66d9ef">-webkit-</span><span style="color:#66d9ef">appearance</span>:<span style="color:#66d9ef">none</span>;
+    <span style="color:#66d9ef">width</span>:<span style="color:#ae81ff">50</span><span style="color:#66d9ef">px</span>;
+    <span style="color:#66d9ef">height</span>:<span style="color:#ae81ff">50</span><span style="color:#66d9ef">px</span>;
+    <span style="color:#66d9ef">background</span>:<span style="color:#66d9ef">white</span>;
+    <span style="color:#66d9ef">border-radius</span>:<span style="color:#ae81ff">5</span><span style="color:#66d9ef">px</span>;
+    <span style="color:#66d9ef">border</span>:<span style="color:#ae81ff">2</span><span style="color:#66d9ef">px</span> <span style="color:#66d9ef">solid</span> <span style="color:#ae81ff">#555</span>;
+    <span style="color:#66d9ef">margin-left</span>: <span style="color:#ae81ff">7</span><span style="color:#66d9ef">px</span>;
+    <span style="color:#66d9ef">margin-right</span>: <span style="color:#ae81ff">7</span><span style="color:#66d9ef">px</span>;
+}
+}
+</code></pre></div>
+</article>
+
+
+
+</html>
